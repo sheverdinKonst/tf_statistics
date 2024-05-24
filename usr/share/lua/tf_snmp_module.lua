@@ -30,28 +30,53 @@ local function i2c_handler(snmp_obj, index)
     local jsonInfo
     local res = ""
     local name = ""
+    local status = "OK"
 
     if type(snmp_obj.name) == "table" then
         if tonumber(index) > #snmp_obj.name then
             print("over_range")
-            return nil
+            status = "over_index"
+            res = nil
         end
         name = snmp_obj.name[tonumber(index)]
     elseif snmp_obj.name == "inputState" then
         if tonumber(index) > #i2c.inputStatus_list then
             print("over_range")
-            return nil
+            status = "over_index"
+            res = nil
         end
         name = i2c.inputStatus_list[index]
     else
         name = snmp_obj.name
     end
     --print("name = " .. name)
-    jsonInfo = tf.getUbusDataByName(name)
-    res = jsonInfo.hw_sys[name]
-    --print("RES = " .. res)
-    if (snmp_obj.isZero == "yes") then
-        res = tonumber(res) + 1
+    if status == "OK" then
+        if snmp_obj.name == "inputIndex" then
+            if tonumber(index) <= #i2c.inputStatus_list then
+                res = index
+            elseif tonumber(index) > #i2c.inputStatus_list then
+                status = "over_index"
+            end
+        elseif snmp_obj.name == "inputType" then
+            if tonumber(index) <= #i2c.inputStatus_list then
+                res = 1
+            elseif tonumber(index) > #i2c.inputStatus_list then
+                status = "over_index"
+            end
+        elseif snmp_obj.name == "inputAlarm" then
+            if tonumber(index) <= #i2c.inputStatus_list then
+                res = 101
+            elseif tonumber(index) > #i2c.inputStatus_list then
+                status = "over_index"
+            end
+        else
+            jsonInfo = tf.getUbusDataByName(name)
+            res = jsonInfo.hw_sys[name]
+            --print("RES = " .. res)
+            if (snmp_obj.isZero == "yes") then
+                res = tonumber(res) + 1
+            end
+        end
     end
 
     --if (snmp_obj.isEnum == "yes") then
@@ -62,7 +87,7 @@ local function i2c_handler(snmp_obj, index)
     --    --print("isZero == yes")
     --end
 
-    return res
+    return res, status
 end
 
 local function snmp_getPoeStatus(mibObj, portNum)
@@ -70,11 +95,15 @@ local function snmp_getPoeStatus(mibObj, portNum)
     local res = ""
     local poePorts = poeInfoJson[poe.enum.ports]
     local count = 0
-
+    local status = "OK"
     count = get_ubusSize(poePorts)
-    if tonumber(portNum) > count or tonumber(portNum) < 1 then
+    if tonumber(portNum) > count then
         print("over_range " .. count .. " port num " .. portNum)
-        return nil
+        status = "over_index"
+        return nil, status
+    elseif tonumber(portNum) < 1 then
+        status = "zero_index"
+        return nil, status
     end
 
     local portStr = "" .. "lan" .. tostring(portNum)
@@ -88,62 +117,89 @@ local function snmp_getPoeStatus(mibObj, portNum)
         else
             res = ""
         end
+    elseif (mibObj.name == "portPoeStatusIndex") then
+        res = portNum
     end
-    return res
+    return res, status
 end
 
 local function snmp_getPoeSate(mibObj, portNum)
     local jsonInfo = {}
     local res = ""
-
-    --portNum = tonumber(portNum)
-    portNum = "lan" .. portNum
+    local status = "OK"
     --print("portNum = " .. portNum)
-    jsonInfo  = poe.getPoeSateInfo(portNum)
+    jsonInfo  = poe.getPoeSateInfo("all")
 
     local temp = jsonInfo.values
-    local paramTable = poe.portPoE_config[mibObj.name]
-    local paramName  = paramTable[1]
+    local count = 0
+    count = get_ubusSize(temp) - 2
+    print("count = " .. count)
+    if tonumber(portNum) > count then
+        status = "over_index"
+        return nil, status
+    elseif tonumber(portNum) < 1 then
+        status = "zero_index"
+        return nil, status
+    end
 
-    temp = temp[paramName]
-    --print("type(temp) = " .. type(temp))
+    if mibObj.name == "portPoeIndex" then
+        res = portNum
+    elseif mibObj.name == "portPoeState" then
+        portNum = "lan" .. tostring(portNum)
+        local list = temp[portNum]
+        res = list.poe
+        print("res = " .. res)
+    end
 
     if mibObj.isEnum == "yes" then
-        temp = temp .. "d"
-        res = mibObj.enum[temp]
-    else
-        res = temp
+        res = res .. "d"
     end
-    return res
+    return res, status
 end
 
 local function snmp_getARconfig(mibObj, portNum)
     local jsonInfo = {}
     local resConfig = ""
-
+    local status = "OK"
     --portNum = tonumber(portNum)
-    portNum = "lan" .. portNum
     --print("portNum = " .. portNum)
-    jsonInfo  = ar.showConfig(portNum)
-
+    jsonInfo  = ar.showConfig("all")
     local temp = jsonInfo.values
+
+    local count = 0
+    count = get_ubusSize(temp)
+    print("count = " .. count)
+    if tonumber(portNum) > count - 2 then
+        status = "over_index"
+        return nil, status
+    elseif tonumber(portNum) < 1 then
+        status = "zero_index"
+        return nil, status
+    end
+    local portNum_str = "lan" .. portNum
+    print("portNum_str = " .. portNum_str)
     local paramTable = ar.configEnum[mibObj.name]
     local paramName  = paramTable[1]
-
-    --print("paramName = " .. paramName)
-    temp = temp[paramName]
-    --print("type(temp) = " .. type(temp))
-    --print("Temp 3 = " .. temp)
+    local key = ""
+    if mibObj.name ~= "autoRstIndex" then
+        print("paramName = " .. paramName)
+        local list = temp[portNum_str]
+        key = list[paramName]
+        print("type(temp) = " .. type(key))
+        print("res = " .. key)
+    end
 
     if mibObj.isEnum == "yes" then
-        resConfig = mibObj.enum[temp]
+        resConfig = mibObj.enum[key]
         --print("resConfig = " .. resConfig)
     else
-        resConfig = temp
+        resConfig = key
     end
 
     local parts = {}
-    if mibObj.name == "autoReStartTimeOnHour" or mibObj.name == "autoReStartTimeOffHour" then
+    if mibObj.name == "autoRstIndex" then
+        resConfig = portNum
+    elseif mibObj.name == "autoReStartTimeOnHour" or mibObj.name == "autoReStartTimeOffHour" then
         --print("time HH = " .. resConfig)
         local time = tf.get_hour_minutes(resConfig)
         if (time[1] ~= nil) then
@@ -160,20 +216,34 @@ local function snmp_getARconfig(mibObj, portNum)
             resConfig = 255
         end
     end
-
-    return resConfig
+    return resConfig, status
 end
 
-local function snmp_getARerrorCode(portNum)
+local function snmp_getARerrorCode(mibObj, portNum)
     local jsonInfo = {}
     local arPoeStatus = {}
     local testType = 0
-
+    local status = "OK"
     portNum = tonumber(portNum)
     jsonInfo  = ar.showStatus()
-    arPoeStatus = jsonInfo.port[portNum]
 
+    local count = 0
+    count = get_ubusSize(jsonInfo.port)
+    print("count = " .. count)
+    if tonumber(portNum) > count then
+        status = "over_index"
+        return nil, status
+    elseif tonumber(portNum) < 1 then
+        status = "zero_index"
+        return nil, status
+    end
+
+    arPoeStatus = jsonInfo.port[portNum]
+    local res = ""
     --print("--------------------------------------------")
+    if mibObj.name == "arPortIndex" then
+        res = portNum
+    end
     testType = tonumber(arPoeStatus.test_type) + 1
     local error_Code_in = arPoeStatus.error_Code
     local error_Code_local = tonumber(ar.errorCode[testType][2])
@@ -186,7 +256,7 @@ local function snmp_getARerrorCode(portNum)
     --print("logic " .. tostring(bit.band(error_Code_in, error_Code_local)))
     --print("error_Code_link = " .. error_Code_link)
     --print("logic  test link " .. tostring(bit.band(error_Code_in, error_Code_link)))
-    local res = ""
+
     if (tonumber(bit.band(error_Code_in, error_Code_local)) == error_Code_local) then
         --print("id         = " .. arPoeStatus[arInfo.id])
         --print("error_Code = " .. arPoeStatus[arInfo.error_Code])
@@ -202,36 +272,37 @@ local function snmp_getARerrorCode(portNum)
         res = tostring(ar.errorCode[6][3])
     end
     --print("res = " .. res)
-    return res
+    return res, status
 end
 
 function snmp_module.main_handler(mib_obj, index)
     local res = ""
     print("name = " .. mib_obj.name)
     print("ubus = " .. mib_obj.ubusType)
-
+    local status = ""
     if mib_obj.ubusType == "i2c" then
         --print("i2c handler")
-        res = i2c_handler(mib_obj, index)
+        res, status = i2c_handler(mib_obj, index)
         --print("res from mib == " .. res)
     elseif mib_obj.ubusType == "poe_status" then
         --print("Get poe status")
-        res = snmp_getPoeStatus(mib_obj, index)
+        res, status = snmp_getPoeStatus(mib_obj, index)
     elseif mib_obj.ubusType == "poe_config" then
         --print("index = " .. index)
-        res = snmp_getPoeSate(mib_obj, index)
+        res, status = snmp_getPoeSate(mib_obj, index)
     elseif mib_obj.ubusType == "ar_status" then
         --print("Get auto_restart status")
-        res = snmp_getARerrorCode(index)
+        res, status = snmp_getARerrorCode(mib_obj, index)
     elseif mib_obj.ubusType == "ar_config" then
         --print("Get auto_restart config")
         --print("name = " .. mib_obj.name .. "  index = " .. index)
-        res = snmp_getARconfig(mib_obj, index)
+        res, status = snmp_getARconfig(mib_obj, index)
     else
         res = nil
+        status = "failed"
         print("error: ubus type not found")
     end
-    return res
+    return res, status
 end
 
 function snmp_module.getRequestType(arg_1)
@@ -244,21 +315,11 @@ function snmp_module.getRequestType(arg_1)
     return requestType
 end
 
-local function get_object(list, index)
-    local obj = {}
-    if list[index] ~= nil then
-        local obj_tmp = list[index]
-        if obj_tmp[3] ~= nil then
-            obj = obj_tmp
-        end
-    end
-    return obj
-end
-
 function snmp_module.get_oidArr(oid)
     local arr = {}
     local in_endIndex = string.len(oid)
     oid = string.sub(oid, 19, in_endIndex)
+    print("oid = " .. oid)
     for num in oid:gmatch("%d+") do
         table.insert(arr, tonumber(num))
         --print("num = " .. num)
@@ -266,200 +327,144 @@ function snmp_module.get_oidArr(oid)
     return arr
 end
 
-local function clearOidFromPoint(input_oid)
-    local in_endIndex = string.len(input_oid)
-    return string.sub(input_oid, 2, in_endIndex)
-end
+local function tableHandler(oid_arr, row_obj, index)
+    local row_table = {}
+    local oid = ""
+    local table_oid_arr = {}
+    local table_oid_index = 0
+    local current_oid_index = 0
+    local status = "OK"
+    row_table = row_obj[3]
 
-function snmp_module.find_oidObj(arr, oid)
-    local obj = {}
-    --local oid_arr = get_oidArr(oid)
-    local oid_arr_len = #arr
-    local modified_oid = clearOidFromPoint(oid)
-    local base_oid = "1.3.6.1.4.1.42019"
-    local current_oid = modified_oid
-    local mib_obj = {}
-    local last_index = ""
-    local index_arr = {}
-    local count = 0
-    for i = #arr, 1, -1 do
-        count = count + 1
-        index_arr[count] = arr[i]
-        --print("current_oid = " .. current_oid)
-        if snmp_base.mib_list[current_oid] ~= nil then
-            mib_obj = snmp_base.mib_list[current_oid]
-            --print("name = " .. mib_obj.name)
-            local endIndex = string.len(current_oid)
-            current_oid = string.sub(current_oid, 1, endIndex - 2)
-            break
-        elseif snmp_base.mib_list[current_oid] == nil then
-            --print("snmp_base.mib_list[current_oid] == nil")
-            local endIndex = string.len(current_oid)
-            current_oid = string.sub(current_oid, 1, endIndex - 2)
-            --print("prev_oid = " .. prev_oid)
-            --print("current_oid = " .. current_oid)
-            mib_obj = nil
-        end
-        --print("end for loop")
-    end
-    --print("last index = " .. last_index)
-    --print("current_oid = " .. current_oid)
-    --print(" ------------------------------  ")
-    return mib_obj, current_oid, index_arr
-end
+    current_oid_index = oid_arr[index]
 
-function snmp_module.find_nextMibObj(modified_oid)
-    local mibObj = {}
-    local nodeType = ""
-    local next_oid = ""
-    local endIndex = string.len(modified_oid)
-    local base_oid = string.sub(modified_oid, 1, endIndex - 2)
-    local index = string.sub(modified_oid, endIndex, endIndex)
-    --print("base_oid = " .. base_oid)
-    if snmp_base.mib_list[modified_oid] ~= nil then
-        mibObj = snmp_base.mib_list[modified_oid]
-        if mibObj.nodetype == "scalar" then
-            --print("Find mib object with scalar")
-            local next_index = ".0"
-            next_oid = modified_oid .. next_index
-            --print("base_oid " .. base_oid)
-            return mibObj, next_oid, nil
-        elseif mibObj.nodetype == "column" then
-            --print("Find mib object with column")
+    oid = row_table[1]
+
+    if type(oid) == "string" then
+        table_oid_arr = snmp_module.get_oidArr(oid)
+        table_oid_index = table_oid_arr[index]
+        if current_oid_index == table_oid_index then
+            print("table_oid_index = " .. table_oid_index)
+            print("oid = " .. oid .. "   name = " .. row_table[2] .. "  type = " .. row_table[4])
+        else
+            print("1 --- table index not valid")
+            status = "failed"
         end
-    elseif snmp_base.mib_list[modified_oid] == nil then
-        --print("MIB obj not Found")
-        --print("index = " .. index)
-        if snmp_base.mib_list[base_oid] ~= nil then
-            mibObj = snmp_base.mib_list[base_oid]
-            if mibObj.nodetype == "scalar" then
-                endIndex = string.len(base_oid)
-                index = string.sub(base_oid, endIndex, endIndex)
-                index = tostring(tonumber(index) + 1)
-                --print("index = " .. index)
-                next_oid = base_oid .. "." .. index .. ".0"
-                --print("next_oid = " .. next_oid)
-                return nil, next_oid, nil
+    else
+        for i, j in pairs(oid) do
+            if type(j) ~= "table" then
+                print("key = " .. i .. "    value = " .. j)
             end
         end
-        return
+        print("ERROR oid is a table")
     end
-    return nil
+    return row_table, status
 end
 
--- function snmp_module.get_mibTable(arr)
---     local obj = {}
---     local base_oid = "1.3.6.1.4.1.42019"
---     local index = ""
---     local status = "in_progress"
---
---     local list = snmp_base.main_list
---     for i = 1, #arr do
---         index = arr[i]
---         obj = list[index]
---         if obj ~= nil then
---             if (obj[4] == "not_defined") then
---                 obj = nil
---                 break
---             elseif obj[4] == "list" then
---                 status = "in_progress"
---                 --print("name = " .. obj[2] .. " type = " .. obj[4])
---                 list = obj[3]
---             elseif obj[4] == "table" then
---                 status = "done"
---                 --print("name = " .. obj[2] .. " type = " .. obj[4])
---                 break
---             end
---         end
---         base_oid = base_oid .. "." .. tostring(index)
---     end
---
---     if obj ~= nil then
---         index = 1
---         --print("-------------- WHILE ---------------------")
---         while status ~= "done" do
---             print("list len = " .. #list)
---             if index <= #list then
---                 print("index = " .. index)
---                 obj = list[index]
---                 if (obj[4] == "not_defined") then
---                     index = index + 1
---                 elseif obj[4] == "list" then
---                     index = 1
---                     status = "in_progress"
---                     list = obj[3]
---                 elseif obj[4] == "table" or obj[4] == "scalar" then
---                     status = "done"
---                     break
---                 end
---             elseif index > #list then
---                 print("----------  END")
---                 obj = nil
---                 break
---             end
---             print("1 name = " .. obj[2] .. " type = " .. obj[4])
---             print("1 base_oid = " .. base_oid)
---         end
---         print("Done --- name = " .. obj[2] .. " type = " .. obj[4])
---         print("oid - " .. obj[1])
---     end
---
---     return obj
--- end
+function snmp_module.get_OidElement(oid_arr)
+    local inputOid_arr = oid_arr
 
-function snmp_module.get_mibTable(oid_arr)
-    local obj = {}
+    local row_obj = {}
     local obj_arr = {}
-    local base_oid = "1.3.6.1.4.1.42019"
-    local index = ""
-    local status = "in_progress"
-    local list = snmp_base.main_list
-    local oid_index = 0
+    local current_list = snmp_base.main_list
+    local current_list_len = #current_list
+    local current_oid_index = 0
+    local index = 1
+    local status = "found"
+    while index <= #oid_arr do
+        print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+        current_oid_index = oid_arr[index]
+        current_list_len = #current_list
+        print("index = " .. index .. "\t current_oid_index = " .. current_oid_index .. "\t current_list_len = " .. current_list_len)
 
-    index = 1
+        if current_oid_index > #current_list then
+            obj_arr[index] = nil
+            status = "oid_over_list"
+            break
+        elseif current_oid_index == 0 then
+            obj_arr[index] = nil
+            status = "zero_index"
+            break
+        else
+            row_obj = current_list[current_oid_index]
+            print("row_obj --- >>> oid = " .. row_obj[1] .. "   name = " .. row_obj[2] .. "  type = " .. row_obj[4])
+            obj_arr[index] = row_obj
+            if row_obj[4] == "not_defined" then
+                obj_arr[index] = row_obj
+                status = "found"
+                break
+            elseif row_obj[4] == "table" then
+                print("*** found table ***")
+                local row_table = {}
+                index = index + 1
+                print("1 --- index = " .. index)
 
-    --print("-------------- WHILE ---------------------")
-    while status ~= "ok" do
-        print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> While 1.1")
-        for i = 1, #oid_arr do
-            print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> FOR 1.1")
-            oid_index = oid_arr[i]
-            print("i = " .. i)
-            print("oid_index = " .. oid_index)
-            print("#list = " .. #list)
-            if oid_index <= #list then
-                obj = list[oid_index]
-                --print("oid = " .. obj[1] .. "   name = " .. obj[2])
-                if obj ~= nil then
-                    obj_arr[i] = obj
-                    if obj[4] == "not_defined" then
-                        print("not_defined")
-                        break
-                    elseif obj[4] == "list" then
-                        print("list")
-                        list = obj[3]
-                        print("i = " .. i .. "  len = " .. #oid_arr)
-                        if i == #oid_arr then
-                            print("i == #oid_arr")
-                            oid_arr[i + 1] = 1
-                            list = snmp_base.main_list
-                            status = "in_progress"
-                        end
+                if index <= #oid_arr then
+                    row_table, status = tableHandler(oid_arr, row_obj, index)
+                else
+                    status = "found"
+                    break
+                end
 
-                    elseif obj[4] == "scalar" then
-                        print("scalar")
-                    elseif obj[4] == "table" then
-                        print("table")
-                        status = "ok"
+                if status == "failed" then
+                    print("2 --- table index not valid")
+                    break;
+                else
+                    obj_arr[index] = row_table
+                    index = index + 1
+                    print("2 --- index = " .. index)
+                    if index <= #oid_arr then
+                        print("*** found entry ***")
+                        row_table, status = tableHandler(oid_arr, row_table, index)
+                    else
+                        status = "found"
                         break
                     end
+
+                    if status == "failed" then
+                        print("3 -- entry index not valid")
+                        break;
+                    else
+                        print("*** found row ***")
+                        status = "found"
+                        current_list = row_table[3]
+                        obj_arr[index] = row_table
+                    end
                 end
-            else
-                status = "over"
+
+            elseif row_obj[4] == "scalar" then
+                print("*** found scalar *** ")
+            elseif row_obj[4] == "column" then
+                print("*** found column *** ")
+                local oid = row_obj[1]
+                local column_oid_arr = snmp_module.get_oidArr(oid)
+                print("#oid_arr = " .. #oid_arr .. "\t #column_oid_arr = " .. #column_oid_arr)
+                local delta = #oid_arr - #column_oid_arr
+                if delta == 0 then
+                    status = "found"
+                elseif delta == 1 then
+                    local data = {}
+                    status = "found"
+                    print("column index = " .. index)
+                    index = index + 1
+                    data[1] = oid_arr[index]
+                    data[2] = row_obj[2]
+                    data[3] = ""
+                    data[4] = "index"
+                    obj_arr[index] = data
+                elseif delta > 1 then
+                    status = "oid_over"
+                end
                 break
+            elseif row_obj[4] == "list" then
+                current_list = row_obj[3]
+                print("index = " .. index .. "  len = " .. #oid_arr)
+
             end
         end
+        index = index + 1
     end
+
     return obj_arr, status
 end
 
@@ -469,101 +474,159 @@ local nodetypeEnum = {
     row     = 3,
     column  = 4,
     scalar  = 5,
-    empty   = 6
+    empty   = 6,
+    not_defined = 7,
 }
 
-function snmp_module.get_nextRequestHandler(obj_arr, oid_arr)
-    local len_objArr = #obj_arr
+local function getResult(oid, index)
+    local mib_obj = snmp_module.getMibObj(oid)
+    local status = ""
+    local result = ""
+    result, status = snmp_module.main_handler(mib_obj, index)
+    return result, status, mib_obj
+end
 
-    local len_oidArr = #oid_arr
-    local new_oid_arr = {}
-    local count = 0
-    local list = {}
-    local last_obj = obj_arr[len_objArr]
-    local nodetype = nodetypeEnum[last_obj[4]]
-    print("nodetype = " .. nodetype)
-    print("oid = " .. last_obj[1] .. " name = " .. last_obj[2] .. " type = " .. last_obj[4])
+local function splitNextOid(oid_arr)
+    local next_oid = ""
+    local next_oid_arr = oid_arr
+    local last_oid_index = oid_arr[#oid_arr]
+    local base_oid = "1.3.6.1.4.1.42019."
+    next_oid_arr[#next_oid_arr] = last_oid_index + 1
+    next_oid = base_oid
+    for i = 1, #next_oid_arr - 1 do
+        next_oid = next_oid .. next_oid_arr[i] .. "."
+    end
+    next_oid = next_oid .. next_oid_arr[#next_oid_arr]
+    print("splitNextOid next_oid = " .. next_oid)
+    return next_oid
+end
 
-    if len_oidArr == len_objArr then
-        print("len_oidArr == len_objArr")
-        if nodetype < nodetypeEnum.column then
-            oid_arr[len_oidArr + 1] = 1
-            len_oidArr = #oid_arr
+function snmp_module.GET_requestHandler(obj_arr)
+    print("GET")
+    local obj_arr_len = #obj_arr
+    local last_element = obj_arr[obj_arr_len]
+    local oid = ""
+    local result = ""
+    local status = "failed"
+    local obj = {}
+    local res_obj = {
+        status = "",
+        oid = "",
+        mibOj = {},
+        res = ""
+    }
+    print("obj_arr len = " .. #obj_arr)
+    for key, value in pairs(obj_arr) do
+        print(key .. " oid = " .. value[1] .. " name = " .. value[2] .. "\ttype = " .. value[4])
+    end
+
+    if last_element[4] == "index" then
+        local prev_element = obj_arr[obj_arr_len - 1]
+        local index = last_element[1]
+        oid = prev_element[1]
+        print("oid = " .. oid)
+        result, status, obj = getResult(oid, index)
+        res_obj.oid = oid .. "." .. index
+    elseif last_element[4] == "scalar" then
+        oid = last_element[1]
+        print("oid = " .. oid)
+        result, status, obj = getResult(oid, 0)
+        res_obj.oid = oid
+    end
+    res_obj.status = status
+    res_obj.mib_obj = obj
+    res_obj.res = result
+    return res_obj
+end
+
+function snmp_module.GET_NEXT_requestHandler(obj_arr)
+    print("GET_NEXT")
+    print("obj_arr len = " .. #obj_arr)
+    for key, value in pairs(obj_arr) do
+        print(key .. " oid = " .. value[1] .. " name = " .. value[2] .. "\ttype = " .. value[4])
+    end
+
+    local obj_arr_len = #obj_arr
+    local last_element = obj_arr[obj_arr_len]
+    local prev_element = obj_arr[obj_arr_len - 1]
+    local prev_list = prev_element[3]
+    local oid_type = last_element[4]
+    local oid = ""
+    local oid_arr = {}
+
+    local obj = {}
+    local res_obj = {
+        status = "",
+        oid = "",
+        mibOj = {},
+        res = ""
+    }
+    local result = ""
+    local status = "OK"
+
+    if oid_type == "not_defined" then
+        oid = last_element[1]
+        oid_arr = snmp_module.get_oidArr(oid)
+        local last_oid_index = tonumber(oid_arr[#oid_arr])
+        print("#prev_list = " .. #prev_list)
+        local next_oid = ""
+        if last_oid_index <= #prev_list then
+            next_oid = splitNextOid(oid_arr)
+            status = "in_progress"
+            res_obj.oid = next_oid
+        elseif last_oid_index > #prev_list then
+            status = "oid_over_list"
+        end
+    elseif oid_type == "list" then
+        oid = last_element[1]
+        res_obj.oid = oid .. "." .. "1"
+        status = "in_progress"
+    elseif oid_type == "table" then
+        oid = last_element[1]
+        res_obj.oid = oid .. "." .. "1"
+        status = "in_progress"
+    elseif oid_type == "entry" then
+        oid = last_element[1]
+        res_obj.oid = oid .. "." .. "1"
+        status = "in_progress"
+    elseif oid_type == "row" then
+        oid = last_element[1]
+        res_obj.oid = oid .. "." .. "1"
+        status = "in_progress"
+    elseif oid_type == "column" then
+        oid = last_element[1]
+        res_obj.oid = oid .. "." .. "1"
+        status = "in_progress"
+    elseif oid_type == "index" then
+        local index = tonumber(last_element[1]) + 1
+        oid = prev_element[1]
+        print("oid = " .. oid)
+        result, status, obj = getResult(oid, index)
+        res_obj.oid = oid .. "." .. index
+
+    elseif oid_type == "scalar" then
+        prev_list = prev_element[3]
+        print("prev_list len = " .. #prev_list)
+        oid = last_element[1]
+        oid_arr = snmp_module.get_oidArr(oid)
+        local last_oid_index = tonumber(oid_arr[#oid_arr])
+        local next_oid = ""
+        if last_oid_index + 1 <= #prev_list then
+            next_oid = splitNextOid(oid_arr)
+            result, status, obj = getResult(next_oid, 0)
+            res_obj.oid = next_oid
+        elseif last_oid_index <= #prev_list then
+            status = "oid_over_list"
         end
     end
-    print("len_oidArr = " .. len_oidArr .. " len_objArr = " .. len_objArr)
-    while len_oidArr > len_objArr do
-        len_objArr = len_objArr + 1
-        count = count + 1
-        new_oid_arr[count] = oid_arr[count]
-        print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>---------SECOND WHILE---------------  ")
-        print("count = " .. count .. "  new_oid_arr[count] = " .. new_oid_arr[count])
-        print("nodetype = " .. nodetype)
-        print("len_objArr = " .. len_objArr)
-        if last_obj[4] == "table" then
-            print("table")
-            print("oid = " .. last_obj[1] .. " name = " .. last_obj[2] .. " type = " .. last_obj[4])
-            last_obj = last_obj[3]
-            print("table oid = " .. last_obj[1] .. " name = " .. last_obj[2] .. " type = " .. last_obj[4])
-        elseif last_obj[4] == "entry" then
-            print("entry")
-            last_obj = last_obj[3]
-            print("oid = " .. last_obj[1] .. " name = " .. last_obj[2] .. " type = " .. last_obj[4])
-            if len_oidArr > len_objArr then
+    res_obj.res = result
+    res_obj.mib_obj = obj
+    res_obj.status = status
+    return res_obj
+end
 
-            end
-        elseif last_obj[4] == "row" then
-            print("row")
-            for i = 1, #oid_arr do
-                print("oid_arr[i] = " .. oid_arr[i])
-            end
-            list = last_obj[3]
-            local len_list = #list
-            local oid_index = oid_arr[len_objArr]
-            print("len_objArr = " .. len_objArr)
-            print("oid_index = " .. oid_index)
-            if oid_index <= len_list then
-                last_obj = list[oid_index]
-                print("row oid = " .. last_obj[1] .. " name = " .. last_obj[2] .. " type = " .. last_obj[4])
-            else
-                print("over_range")
-                local len_new_oid_arr = #new_oid_arr
-                len_objArr = #obj_arr
-                local last_value = oid_arr[len_objArr]
-                print("len_new_oid_arr = " .. len_new_oid_arr)
-                print("oid_index = " .. oid_index)
-                print("last_value = " .. last_value)
-                print("len_objArr = " .. len_objArr)
-                oid_arr = {}
-                for i = 1, len_new_oid_arr do
-                    oid_arr[i] = new_oid_arr[i]
-                    --print("oid_arr[i] = " .. oid_arr[i])
-                end
-                oid_arr[len_objArr] = last_value + 1
-                len_oidArr = #oid_arr
-                print("oid_arr[len_objArr ]  = " .. oid_arr[len_objArr])
-                return oid_arr, "not_found"
-            end
-        elseif last_obj[4] == "column" then
-            if last_obj[3] == nil then
-                print("next list is empty")
-            end
-            print("column oid = " .. last_obj[1] .. " name = " .. last_obj[2] .. " type = " .. last_obj[4])
-        elseif last_obj[4] == "scalar" then
-            print("scalar")
-        end
-        nodetype = nodetypeEnum[last_obj[4]]
-
-        if len_oidArr == len_objArr then
-            if nodetype < nodetypeEnum.column then
-                len_oidArr = #oid_arr
-                oid_arr[len_oidArr + 1] = 1
-                len_oidArr = #oid_arr
-            end
-        end
-    end
-    print("end nodetype = " .. nodetype)
-    return oid_arr, "found"
+function snmp_module.getMibObj(oid)
+    return snmp_base.mib_list[oid]
 end
 
 return snmp_module

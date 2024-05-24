@@ -43,7 +43,7 @@ local methods = {
                 -- ubus call hw_sensor getStatus '{"category":"ups"}'
                 if hw_sysEnum[f_args.category] ~= nil then
                     for name, _ in pairs(hw_sysEnum[f_args.category]) do
-                        cmd = "hwsys_ctrl " .. name .. cmdtype
+                        local cmd = "hwsys_ctrl " .. name .. cmdtype
                         local temp = tostring(tf.executeCommand(cmd))
                         temp = string.sub(temp, 1, #temp - 1)
                         sensorRes[name] = temp
@@ -55,7 +55,7 @@ local methods = {
 
             elseif f_args.param ~= nil then
                 -- ubus call hw_sensor getStatus '{"param":"temper"}'
-                cmd = "hwsys_ctrl " .. f_args.param .. cmdtype
+                local cmd = "hwsys_ctrl " .. f_args.param .. cmdtype
                 local temp = tostring(tf.executeCommand(cmd))
                 temp = string.sub(temp, 1, #temp - 1)
                 sensorRes[f_args.param] = temp

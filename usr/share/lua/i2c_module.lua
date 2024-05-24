@@ -17,8 +17,10 @@ i2c_module.inputStatus_list =
     "inputTamper",
     "inputSensor1",
     "inputSensor2",
-    "inputRelay1",
+    --"inputRelay1",
 }
+
+
 
 function i2c_module.get_sensorsData()
     local res = {}

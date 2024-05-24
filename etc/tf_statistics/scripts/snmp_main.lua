@@ -13,13 +13,8 @@ local log       = require "tf_log"
 local requestType = arg[1]
 local inputOid    = arg[2]
 
-local function getRequestType(type)
-    return snmp.getRequestType(type)
-end
-
 local function send_Get_result(oid, mibObj, res)
     print(oid)
-
     if mibObj ~= nil then
         if (mibObj.valueType == "DisplayString") then
             print("String")
@@ -32,7 +27,6 @@ local function send_Get_result(oid, mibObj, res)
         print("OID")
         print("1.3.6.1.4.1.8072.3.2.10")
     end
-
 end
 
 local statusList = {
@@ -41,79 +35,114 @@ local statusList = {
     'found'
 }
 
+--local requestHandlerList =
+--{
+--    GET      = snmp.GET_requestHandler(),
+--    GET_NEXT = snmp.get_nextRequestHandler,
+--    SET      = snmp.setRequestHandler
+--}
+
 local function main_handler()
     local obj_arr = {}
-    local oid_arr = snmp.get_oidArr(inputOid)
+    local oid_arr = {}
+    local result = ""
+    local mib_obj = {}
     local status = "in_progress"
+    local res_obj = {
+        status = "",
+        oid = "",
+        mib_obj = {},
+        res = ""
+    }
 
-    while status ~= "found" do
-        print("-----------------------------------   FIRST WHILE")
-        obj_arr, status = snmp.get_mibTable(oid_arr)
-        if status == "over" then
-            print("status = " .. status)
+    local count = 1
+    while status ~= "OK" do
+        print("====================================  STATUS = " .. status)
+        if count == 1 then
+            oid_arr = snmp.get_oidArr(inputOid)
+            count = count + 1
+        elseif count > 1 then
+            print("res_obj.oid = " .. res_obj.oid)
+            oid_arr = snmp.get_oidArr(res_obj.oid)
+        end
+
+        if status == "in_progress" then
+            -----------------------------------------------------
+            obj_arr, status = snmp.get_OidElement(oid_arr)
+            -------------------------------------------------------
+        elseif status == "oid_over_list" then
+            local base_oid = "1.3.6.1.4.1.42019."
             local new_arr = {}
+            oid_arr = snmp.get_oidArr(inputOid)
             for i = 1, #oid_arr - 2 do
                 new_arr[i] = oid_arr[i]
             end
+            print("#oid_arr = " .. #oid_arr)
+            print("oid_arr[#oid_arr - 1] = " .. oid_arr[#oid_arr - 1])
             new_arr[#oid_arr - 1] = oid_arr[#oid_arr - 1] + 1
-            new_arr[#oid_arr] = 1
+            --new_arr[#oid_arr] = 1
+            print("new_arr[#oid_arr - 1] = " .. new_arr[#oid_arr - 1])
             oid_arr = {}
             oid_arr = new_arr
-            --print("last index = " .. oid_arr[#oid_arr])
-        elseif status == "ok" then
-            print("ok")
-            for key, value in pairs(obj_arr) do
-                print("key = " .. key .. " name = " .. value[2] .. " type = " .. value[4])
+            print("last index = " .. oid_arr[#oid_arr])
+            res_obj.oid = base_oid
+            for i = 1, #oid_arr do
+                res_obj.oid = res_obj.oid .. oid_arr[i] .. "."
+                print("oid_arr[" .. i .. "]" .. oid_arr[i])
             end
-        end
-
-        if obj_arr == nil then
-            print("not found")
-        else
-            print("found")
-            print("obj_arr len = " .. #obj_arr)
-
+            status = "in_progress"
+        elseif status == "over_index" then
+            break
+        elseif status == "oid_over" then
+            --return 0
+            --elseif status == "not_defined" then
+            --    --return 0
+            --    break
+        elseif status == "zero_index" then
+            break
+        elseif status == "failed" then
+            --return 0
+            break
+        elseif status == "found" then
             if requestType == "GET" then
-                print("GET")
-            elseif requestType == "GET_NEXT" then
-                for i = 1, #oid_arr do
-                    print(" >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>   oid_arr[i] = " .. oid_arr[i])
-                end
-                oid_arr, status = snmp.get_nextRequestHandler(obj_arr, oid_arr)
-                for i = 1, #oid_arr do
-                    print("1 - oid_arr[i] = " .. oid_arr[i])
-                end
-            elseif requestType == "SET" then
-                print("SET")
+                res_obj = snmp.GET_requestHandler(obj_arr)
+                status = res_obj.status
             end
-
-            -- if obj[4] == "not_defined" then
-            --     print("not_defined")
-            -- elseif obj[4] == "list" then
-            --     print("list")
-            -- elseif obj[4] == "scalar" then
-            --     print("scalar")
-            -- elseif obj[4] == "table" then
-            --     print("table")
-            --     break
-            -- end
-
+            if requestType == "GET_NEXT" then
+                if #obj_arr > 1 then
+                    res_obj = snmp.GET_NEXT_requestHandler(obj_arr)
+                    status = res_obj.status
+                elseif #obj_arr == 1 then
+                    print("#obj_arr = " .. #obj_arr)
+                    local base_oid = "1.3.6.1.4.1.42019."
+                    res_obj.oid = base_oid .. "3.1"
+                    status = "in_progress"
+                end
+            end
         end
+        --for i = 1, #oid_arr do
+        --    print(" >>>>>>> oid_arr[" .. i .. "] = " .. oid_arr[i])
+        --end
     end
+
+    send_Get_result(res_obj.oid, res_obj.mib_obj, res_obj.res)
+    return status
 end
 
-
 local function tf_run_snmp()
-
     requestType = snmp.getRequestType(requestType)
     print("requestType = " .. requestType)
     if requestType == nil or requestType == "" then
         print("requestType = nil")
         return 0
     end
-
-    main_handler()
-
+    local res = {}
+    if arg[2] ~= nil then
+        res = main_handler()
+        print("==================================== MAIN RES  = " .. res)
+    else
+        print("OID must be presented arg[2]")
+    end
 end
 
 tf_run_snmp()

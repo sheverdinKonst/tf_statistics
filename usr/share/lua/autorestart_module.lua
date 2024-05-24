@@ -36,6 +36,7 @@ local arStatus =
 }
 
 autorestart_module.configEnum = {
+    autoRstIndex            = { "index",         "Index     " },
     port                    = { "port",         "Port:      " },
     autoRstMode             = { "state",        "State:     " },
     autoRstDstIP            = { "host",         "Host:      " },
@@ -43,8 +44,8 @@ autorestart_module.configEnum = {
     autoRstSpeedUp          = { "max_speed",    "Max speed: " },
     autoReStartTimeOnHour   = { "timeUp",       "Time Up:   " },
     autoReStartTimeOnMin    = { "timeUp",       "Time Up:   " },
-    autoReStartTimeOffHour  = { "timeUp",       "Time Up:   " },
-    autoReStartTimeOffMin   = { "timeUp",       "Time Up:   " },
+    autoReStartTimeOffHour  = { "timeDown",     "Time Off:  " },
+    autoReStartTimeOffMin   = { "timeDown",     "Time Off:   " },
     time_down               = { "timeDown",     "Time Down: " }
 }
 
